@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 let archiver, AdmZip, fsExtra;
 try {
@@ -13,16 +14,17 @@ try {
 const PLUGIN_ID = 'tavern-backup-assistant';
 const PLUGIN_DIR = __dirname;
 const EXTENSION_DIR = path.join(process.cwd(), 'public', 'scripts', 'extensions', 'third-party', 'TavernBackupAssistant');
-const BACKUP_TEMP_DIR = path.join(PLUGIN_DIR, 'temp_backups');
+const BACKUP_TEMP_DIR = path.join(os.tmpdir(), 'st_backup_temp');
 
 let currentTask = { status: 'idle', progress: 0, message: '', resultFile: null };
 
-function getDirectorySize(dirPath) {
+function getDirectorySize(dirPath, excludeDirs) {
     let size = 0;
     if (!fs.existsSync(dirPath)) return 0;
     try {
         const files = fs.readdirSync(dirPath);
         for (const file of files) {
+            if (excludeDirs && excludeDirs.includes(file)) continue;
             const filePath = path.join(dirPath, file);
             const stats = fs.statSync(filePath);
             if (stats.isDirectory()) size += getDirectorySize(filePath);
@@ -37,7 +39,7 @@ function cleanTempFolder() {
         if (fs.existsSync(BACKUP_TEMP_DIR)) {
             fsExtra.emptyDirSync(BACKUP_TEMP_DIR);
         } else {
-            fs.mkdirSync(BACKUP_TEMP_DIR);
+            fs.mkdirSync(BACKUP_TEMP_DIR, { recursive: true });
         }
     } catch (e) {
         console.error('[備份助手] 清理暫存資料夾失敗:', e);
@@ -64,9 +66,12 @@ function updateStatus(progress, message, status = 'working') {
     currentTask.status = status;
 }
 
+// 需要排除的目錄（避免備份插件自身及快取）
+const DATA_EXCLUDE_DIRS = ['TavernBackupAssistant-TW'];
+
 function init(app, config) {
     installFrontend();
-    if (!fs.existsSync(BACKUP_TEMP_DIR)) fs.mkdirSync(BACKUP_TEMP_DIR);
+    if (!fs.existsSync(BACKUP_TEMP_DIR)) fs.mkdirSync(BACKUP_TEMP_DIR, { recursive: true });
 
     app.get('/status', (req, res) => res.json(currentTask));
 
@@ -98,7 +103,7 @@ function init(app, config) {
         };
 
         let totalBytes = 0;
-        if (data) totalBytes += getDirectorySize(P.data);
+        if (data) totalBytes += getDirectorySize(P.data, DATA_EXCLUDE_DIRS);
         if (extensions) {
             totalBytes += getDirectorySize(P.extGlobal);
             if (!data) totalBytes += getDirectorySize(P.extUser);
@@ -125,7 +130,20 @@ function init(app, config) {
             updateStatus(0, '錯誤：' + err.message, 'error');
         });
 
-        if (data) archive.directory(P.data, 'data');
+        // 備份 data 時排除插件自身目錄，避免打包暫存檔案
+        if (data) {
+            const dataEntries = fs.readdirSync(P.data);
+            dataEntries.forEach(entry => {
+                if (DATA_EXCLUDE_DIRS.includes(entry)) return;
+                const fullPath = path.join(P.data, entry);
+                const stat = fs.statSync(fullPath);
+                if (stat.isDirectory()) {
+                    archive.directory(fullPath, 'data/' + entry);
+                } else {
+                    archive.file(fullPath, { name: 'data/' + entry });
+                }
+            });
+        }
         if (extensions) {
             archive.directory(P.extGlobal, 'public/scripts/extensions');
             if (!data && fs.existsSync(P.extUser)) archive.directory(P.extUser, 'data/default-user/extensions');
