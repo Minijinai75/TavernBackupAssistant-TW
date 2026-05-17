@@ -1,0 +1,8 @@
+{
+    "display_name": "酒館備份助手 (Tavern Backup Assistant TW)",
+    "author": "Minijinai75 (based on SenriYuki)",
+    "version": "1.0.0",
+    "js": "index.js",
+    "css": "style.css",
+    "type": "global"
+}

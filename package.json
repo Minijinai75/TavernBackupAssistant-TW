@@ -1,0 +1,12 @@
+{
+  "name": "tavern-backup-assistant-tw",
+  "version": "1.0.0",
+  "description": "酒館一鍵備份還原助手 繁體中文版 / One-click backup and restore tool for SillyTavern",
+  "main": "index.js",
+  "author": "Minijinai75 (based on SenriYuki)",
+  "dependencies": {
+    "adm-zip": "^0.5.10",
+    "archiver": "^5.3.1",
+    "fs-extra": "^10.0.0"
+  }
+}
