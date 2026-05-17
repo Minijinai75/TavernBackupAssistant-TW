@@ -1,0 +1,98 @@
+/* 遮罩與視窗 */
+.ba-mask {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(0, 0, 0, 0.75); z-index: 20000;
+    display: flex; justify-content: center; align-items: center;
+    backdrop-filter: blur(4px); overflow: hidden;
+}
+
+.ba-win {
+    position: relative; width: 90vw; max-width: 500px; max-height: 85vh;
+    background-color: #1a1a1a;
+    background-image: linear-gradient(var(--SmartThemeBgColor, #1a1a1a), var(--SmartThemeBgColor, #1a1a1a));
+    border: 1px solid var(--SmartThemeBorderColor, #444);
+    border-radius: 12px; display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.8); overflow: hidden;
+}
+
+/* 標題欄 */
+.ba-head {
+    padding: 15px 20px; background: rgba(0,0,0,0.3);
+    border-bottom: 1px solid var(--SmartThemeBorderColor, #333);
+    display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
+}
+.ba-head h3 { margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 10px; }
+
+/* 標籤頁 */
+.ba-tabs { display: flex; background: rgba(0,0,0,0.2); flex-shrink: 0; }
+.ba-tab {
+    flex: 1; text-align: center; padding: 12px; cursor: pointer;
+    border-bottom: 2px solid transparent; opacity: 0.6; transition: 0.2s; font-weight: bold;
+}
+.ba-tab.active {
+    border-bottom-color: var(--SmartThemeQuoteColor, #6fa8dc);
+    opacity: 1; color: var(--SmartThemeQuoteColor, #6fa8dc);
+    background: rgba(255,255,255,0.02);
+}
+
+/* 內容區 */
+.ba-content { padding: 20px; flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+/* 警告框 */
+.ba-warning-box {
+    background: rgba(255, 68, 68, 0.1);
+    border: 1px solid rgba(255, 68, 68, 0.4);
+    color: #ff8e8e; padding: 15px; border-radius: 10px;
+    margin-bottom: 20px; line-height: 1.5; font-size: 0.95em;
+}
+.ba-warning-box strong { color: #ff5555; text-decoration: underline; }
+
+/* 列表項 */
+.ba-list { display: flex; flex-direction: column; gap: 10px; }
+.ba-item {
+    display: flex; align-items: center; gap: 15px; padding: 12px 15px;
+    background: rgba(255,255,255,0.03); border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.05); transition: all 0.2s;
+}
+.ba-item:active { background: rgba(255,255,255,0.08); transform: scale(0.98); }
+.ba-item input[type="checkbox"] { width: 20px; height: 20px; margin: 0; flex-shrink: 0; cursor: pointer; }
+
+/* 上傳區域 */
+.ba-upload-area {
+    margin: 10px 0 20px 0; padding: 40px 20px;
+    border: 2px dashed rgba(255,255,255,0.15);
+    border-radius: 12px; text-align: center; transition: 0.3s;
+    background: rgba(255,255,255,0.02); position: relative;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.ba-upload-area:hover, .ba-upload-area:active {
+    border-color: var(--SmartThemeQuoteColor, #6fa8dc);
+    background: rgba(111, 168, 220, 0.05);
+}
+.ba-upload-icon { font-size: 2em; opacity: 0.5; margin-bottom: 5px; }
+.ba-upload-text { font-size: 0.9em; opacity: 0.8; color: var(--SmartThemeBodyColor, #eee); }
+
+.ba-upload-area input[type="file"] {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    opacity: 0; cursor: pointer; z-index: 10;
+}
+
+/* 按鈕 */
+.ba-actions { padding: 20px; border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; }
+.ba-btn {
+    padding: 14px; border: none; border-radius: 10px;
+    font-size: 1rem; font-weight: bold; width: 100%; cursor: pointer;
+    background: linear-gradient(135deg, #6fa8dc, #4a90e2);
+    color: white; box-shadow: 0 4px 15px rgba(74, 144, 226, 0.3);
+    transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.ba-btn:active { transform: translateY(2px); box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+.ba-btn.danger { background: linear-gradient(135deg, #ff6b6b, #d32f2f); box-shadow: 0 4px 15px rgba(211, 47, 47, 0.3); }
+
+/* 進度條 */
+.ba-progress-area { padding: 0 20px 20px; flex-shrink: 0; }
+.ba-progress-bg { height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
+.ba-progress-bar { height: 100%; background: #6fa8dc; width: 0%; transition: width 0.3s; }
+
+/* 頁腳 */
+.ba-foot { text-align: center; font-size: 0.75rem; opacity: 0.3; padding: 10px; }
