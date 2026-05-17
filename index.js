@@ -17,6 +17,7 @@ const EXTENSION_DIR = path.join(process.cwd(), 'public', 'scripts', 'extensions'
 const BACKUP_TEMP_DIR = path.join(os.tmpdir(), 'st_backup_temp');
 
 let currentTask = { status: 'idle', progress: 0, message: '', resultFile: null };
+const DATA_EXCLUDE_DIRS = ['TavernBackupAssistant-TW'];
 
 function getDirectorySize(dirPath, excludeDirs) {
     let size = 0;
@@ -66,8 +67,46 @@ function updateStatus(progress, message, status = 'working') {
     currentTask.status = status;
 }
 
-// 需要排除的目錄（避免備份插件自身及快取）
-const DATA_EXCLUDE_DIRS = ['TavernBackupAssistant-TW'];
+function scanJsonlFiles(dir, type, results) {
+    if (!fs.existsSync(dir)) return;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            scanJsonlFiles(fullPath, type, results);
+        } else if (entry.name.endsWith('.jsonl')) {
+            results.total++;
+            const rootDir = process.cwd();
+            const relativePath = path.relative(path.join(rootDir, 'data'), fullPath);
+            try {
+                const stat = fs.statSync(fullPath);
+                if (stat.size === 0) {
+                    results.corrupted++;
+                    results.files.push({ path: relativePath, type: type, error: '檔案為空 (0 bytes)', line: 0, size: 0 });
+                    continue;
+                }
+                const content = fs.readFileSync(fullPath, 'utf-8');
+                const lines = content.split('\n').filter(l => l.trim());
+                let lineNum = 0;
+                for (const line of lines) {
+                    lineNum++;
+                    try { JSON.parse(line); } catch (parseErr) {
+                        results.corrupted++;
+                        results.files.push({
+                            path: relativePath, type: type,
+                            error: '第 ' + lineNum + ' 行 JSON 解析失敗: ' + parseErr.message.substring(0, 80),
+                            line: lineNum, size: stat.size
+                        });
+                        break;
+                    }
+                }
+            } catch (readErr) {
+                results.corrupted++;
+                results.files.push({ path: relativePath, type: type, error: '無法讀取: ' + readErr.message, line: 0, size: 0 });
+            }
+        }
+    }
+}
 
 function init(app, config) {
     installFrontend();
@@ -75,24 +114,39 @@ function init(app, config) {
 
     app.get('/status', (req, res) => res.json(currentTask));
 
+    app.get('/health-check', (req, res) => {
+        const rootDir = process.cwd();
+        const results = { total: 0, corrupted: 0, files: [] };
+        scanJsonlFiles(path.join(rootDir, 'data', 'default-user', 'chats'), '個人聊天', results);
+        scanJsonlFiles(path.join(rootDir, 'data', 'default-user', 'group chats'), '群組聊天', results);
+        res.json(results);
+    });
+
+    app.post('/health-check/delete', (req, res) => {
+        const { filePath: relPath } = req.body;
+        if (!relPath) return res.status(400).json({ error: '未指定檔案' });
+        const rootDir = process.cwd();
+        const fullPath = path.join(rootDir, 'data', relPath);
+        const dataDir = path.join(rootDir, 'data');
+        if (!fullPath.startsWith(dataDir)) return res.status(403).json({ error: '路徑不合法' });
+        if (!fs.existsSync(fullPath)) return res.status(404).json({ error: '檔案不存在' });
+        try { fs.unlinkSync(fullPath); res.json({ success: true }); }
+        catch (err) { res.status(500).json({ error: err.message }); }
+    });
+
     app.post('/backup', async (req, res) => {
         if (currentTask.status === 'working') return res.status(409).json({ error: '任務進行中' });
         if (!archiver) return res.status(500).json({ error: '缺少依賴' });
-
         cleanTempFolder();
-
         const { data, extensions, themes, config: incConfig, secrets } = req.body;
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         const fileName = `ST_Backup_${timestamp}.zip`;
         const filePath = path.join(BACKUP_TEMP_DIR, fileName);
-
         currentTask.resultFile = null;
         updateStatus(0, '正在掃描檔案...', 'working');
-
         const output = fs.createWriteStream(filePath);
         const archive = archiver('zip', { zlib: { level: 9 } });
         const rootDir = process.cwd();
-
         const P = {
             data: path.join(rootDir, 'data'),
             extGlobal: path.join(rootDir, 'public', 'scripts', 'extensions'),
@@ -101,47 +155,26 @@ function init(app, config) {
             themeUser: path.join(rootDir, 'data', 'default-user', 'themes'),
             movables: path.join(rootDir, 'public', 'Movables')
         };
-
         let totalBytes = 0;
         if (data) totalBytes += getDirectorySize(P.data, DATA_EXCLUDE_DIRS);
-        if (extensions) {
-            totalBytes += getDirectorySize(P.extGlobal);
-            if (!data) totalBytes += getDirectorySize(P.extUser);
-        }
-        if (themes) {
-            totalBytes += getDirectorySize(P.themeGlobal);
-            if (!data) totalBytes += getDirectorySize(P.themeUser);
-        }
+        if (extensions) { totalBytes += getDirectorySize(P.extGlobal); if (!data) totalBytes += getDirectorySize(P.extUser); }
+        if (themes) { totalBytes += getDirectorySize(P.themeGlobal); if (!data) totalBytes += getDirectorySize(P.themeUser); }
         if (incConfig) totalBytes += 10000;
-
         archive.pipe(output);
-
         archive.on('progress', (progress) => {
             const percent = totalBytes > 0 ? (progress.fs.processedBytes / totalBytes) * 100 : 50;
             updateStatus(percent, `正在打包：${Math.round(progress.fs.processedBytes / 1024 / 1024)}MB`);
         });
-
-        output.on('close', () => {
-            currentTask.resultFile = fileName;
-            updateStatus(100, '完成！', 'done');
-        });
-
-        archive.on('error', (err) => {
-            updateStatus(0, '錯誤：' + err.message, 'error');
-        });
-
-        // 備份 data 時排除插件自身目錄，避免打包暫存檔案
+        output.on('close', () => { currentTask.resultFile = fileName; updateStatus(100, '完成！', 'done'); });
+        archive.on('error', (err) => { updateStatus(0, '錯誤：' + err.message, 'error'); });
         if (data) {
             const dataEntries = fs.readdirSync(P.data);
             dataEntries.forEach(entry => {
                 if (DATA_EXCLUDE_DIRS.includes(entry)) return;
-                const fullPath = path.join(P.data, entry);
-                const stat = fs.statSync(fullPath);
-                if (stat.isDirectory()) {
-                    archive.directory(fullPath, 'data/' + entry);
-                } else {
-                    archive.file(fullPath, { name: 'data/' + entry });
-                }
+                const fp = path.join(P.data, entry);
+                const stat = fs.statSync(fp);
+                if (stat.isDirectory()) archive.directory(fp, 'data/' + entry);
+                else archive.file(fp, { name: 'data/' + entry });
             });
         }
         if (extensions) {
@@ -153,57 +186,34 @@ function init(app, config) {
             if (!data && fs.existsSync(P.themeUser)) archive.directory(P.themeUser, 'data/default-user/themes');
             if (fs.existsSync(P.movables)) archive.directory(P.movables, 'public/Movables');
         }
-        if (incConfig && fs.existsSync(path.join(rootDir, 'config.yaml'))) {
-            archive.file(path.join(rootDir, 'config.yaml'), { name: 'config.yaml' });
-        }
-        if (secrets && fs.existsSync(path.join(rootDir, 'secrets.json'))) {
-            archive.file(path.join(rootDir, 'secrets.json'), { name: 'secrets.json' });
-        }
-
-        archive.append(JSON.stringify({ createdBy: 'TavernBackupAssistant-TW', version: '2.2-tw' }), { name: 'backup_info.json' });
+        if (incConfig && fs.existsSync(path.join(rootDir, 'config.yaml'))) archive.file(path.join(rootDir, 'config.yaml'), { name: 'config.yaml' });
+        if (secrets && fs.existsSync(path.join(rootDir, 'secrets.json'))) archive.file(path.join(rootDir, 'secrets.json'), { name: 'secrets.json' });
+        archive.append(JSON.stringify({ createdBy: 'TavernBackupAssistant-TW', version: '2.3-tw' }), { name: 'backup_info.json' });
         archive.finalize();
-
         res.json({ success: true, message: '備份已開始' });
     });
 
     app.get('/download/:filename', (req, res) => {
         const file = path.join(BACKUP_TEMP_DIR, req.params.filename);
         if (fs.existsSync(file)) {
-            res.download(file, (err) => {
-                if (!err) {
-                    try {
-                        fs.unlinkSync(file);
-                        console.log(`[備份助手] 暫存檔案已清理: ${req.params.filename}`);
-                    } catch (e) {}
-                }
-            });
-        } else {
-            res.status(404).send('找不到檔案');
-        }
+            res.download(file, (err) => { if (!err) { try { fs.unlinkSync(file); } catch (e) {} } });
+        } else { res.status(404).send('找不到檔案'); }
     });
 
     app.post('/restore', (req, res) => {
         if (!AdmZip) return res.status(500).json({ error: '缺少依賴' });
-
         cleanTempFolder();
         updateStatus(0, '正在接收檔案...', 'working');
-        const fileName = 'restore_upload.zip';
-        const filePath = path.join(BACKUP_TEMP_DIR, fileName);
+        const filePath = path.join(BACKUP_TEMP_DIR, 'restore_upload.zip');
         const writeStream = fs.createWriteStream(filePath);
-
         req.pipe(writeStream);
-
         writeStream.on('finish', async () => {
             try {
                 updateStatus(20, '校驗檔案中...', 'working');
                 const zip = new AdmZip(filePath);
-                const rootDir = process.cwd();
-
                 updateStatus(30, '正在解壓覆蓋...', 'working');
-                zip.extractAllTo(rootDir, true);
-
+                zip.extractAllTo(process.cwd(), true);
                 try { fs.unlinkSync(filePath); } catch(e) {}
-
                 updateStatus(100, '還原成功！請重新整理頁面。', 'done');
                 res.json({ success: true });
             } catch (err) {
@@ -211,7 +221,6 @@ function init(app, config) {
                 res.json({ success: false, error: err.message });
             }
         });
-
         writeStream.on('error', () => res.json({ success: false }));
     });
 }
